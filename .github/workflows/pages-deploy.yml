@@ -190,12 +190,21 @@ jobs:
         # v1.0.3 实际事故: 旧版 "| grep -v already exists || true" 把创建失败吞掉 →
         # 桶根本没建成 → 最终 deploy 才报 "R2 bucket not found", 白跑一整轮。
         # R2 REST 响应: { success, result: { buckets: [{ name, ... }] } }
+        # ⚠ [code: 10042] = R2 服务未在账号上开通, 与 Token 权限无关 —— R2 不同于
+        #   D1/Pages, 必须先在 Dashboard 手动激活(绑定支付方式)才能调用 R2 API。
         if: ${{ steps.cfg.outputs.r2 != '' }}
         env:
           R2_NAME: ${{ steps.cfg.outputs.r2 }}
         run: |
           R2LIST=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets")
+
+          # R2 服务未开通([code: 10042]): REST 与 wrangler 都会报这个错, 提前拦截给对指引
+          if echo "$R2LIST" | grep -qE '"code"\s*:\s*10042|[Pp]lease enable R2'; then
+            echo "::error::R2 服务未在此 Cloudflare 账号上开通([code: 10042]), 与 Token 权限无关 —— Token 已具备 R2:Edit 时也会报此错。"
+            echo "::error::解决: Cloudflare Dashboard → 左侧 R2 对象存储 → 按提示开通 R2(免费额度 10GB 存储/月, 开通需绑定支付方式), 开通后重跑本工作流。"
+            exit 1
+          fi
 
           # jq 先判型再取字段(if type == "array"): 顶层数组与 result.buckets 包装两种格式都兼容,
           # 且不会因对数组取 .result 触发 "Cannot index array with string" 类型错误
@@ -214,6 +223,10 @@ jobs:
               echo "R2 存储桶已存在(并发创建场景): $R2_NAME"
             elif echo "$RESULT" | grep -qi "success"; then
               echo "R2 存储桶创建成功: $R2_NAME"
+            elif echo "$RESULT" | grep -qE '"code"\s*:\s*10042|[Pp]lease enable R2'; then
+              echo "::error::R2 服务未在此 Cloudflare 账号上开通([code: 10042]), 与 Token 权限无关。"
+              echo "::error::解决: Cloudflare Dashboard → 左侧 R2 对象存储 → 按提示开通 R2(免费额度 10GB 存储/月, 开通需绑定支付方式), 开通后重跑本工作流。"
+              exit 1
             else
               echo "::error::R2 存储桶创建失败, 请检查 CLOUDFLARE_API_TOKEN 是否含 Workers R2 Storage:Edit 权限"
               echo "::error::wrangler 返回: $RESULT"
