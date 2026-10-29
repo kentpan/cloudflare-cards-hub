@@ -115,10 +115,34 @@ jobs:
         run: npm install -g "wrangler@${WRANGLER_VERSION}"
 
       - name: 确保 Pages 项目存在
+        # 模式对齐参考实现（REST 查重 → 不存在才创建 → 失败 fail hard）。
+        # 严禁 "| grep -v already exists || true" 吞错：创建失败却继续，
+        # 会在最终 deploy 步骤才爆出难懂的错误，白跑一整轮。
+        env:
+          PROJECT: ${{ steps.cfg.outputs.project }}
         run: |
-          PROJECT="${{ steps.cfg.outputs.project }}"
-          npx wrangler pages project create "${PROJECT}" --production-branch=main 2>&1 | grep -v "already exists" || true
-          echo "Pages 项目: ${PROJECT}"
+          CHECK=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/${PROJECT}")
+          CODE=$(echo "$CHECK" | tail -1)
+          BODY=$(echo "$CHECK" | sed '$d')
+
+          if [ "$CODE" = "200" ]; then
+            echo "Pages 项目已存在: $PROJECT"
+          elif [ "$CODE" = "404" ]; then
+            echo "创建 Pages 项目: $PROJECT"
+            RESULT=$(npx wrangler pages project create "$PROJECT" --production-branch=main 2>&1 || true)
+            echo "$RESULT"
+            if ! echo "$RESULT" | grep -qi "successfully created"; then
+              echo "::error::Pages 项目创建失败, 请检查 CLOUDFLARE_API_TOKEN 是否含 Cloudflare Pages:Edit 权限"
+              echo "::error::wrangler 返回: $RESULT"
+              exit 1
+            fi
+            echo "Pages 项目创建成功: $PROJECT"
+          else
+            echo "::error::无法查询 Pages 项目(HTTP $CODE), 请检查 CLOUDFLARE_API_TOKEN 是否含 Cloudflare Pages:Edit 权限"
+            echo "::error::API 返回: $BODY"
+            exit 1
+          fi
 
       - name: 确保 D1 数据库存在并取得 ID
         # 逻辑照抄参考实现（upload/deploy.zip pages-deploy.yml “Create D1 database (if needed)”）。
@@ -162,11 +186,40 @@ jobs:
           echo "D1 database_id: ${DB_ID}"
 
       - name: 确保 R2 存储桶存在
+        # 模式照抄参考实现 KV 步骤（REST 查重 → 不存在才创建 → 失败 fail hard）。
+        # v1.0.3 实际事故: 旧版 "| grep -v already exists || true" 把创建失败吞掉 →
+        # 桶根本没建成 → 最终 deploy 才报 "R2 bucket not found", 白跑一整轮。
+        # R2 REST 响应: { success, result: { buckets: [{ name, ... }] } }
         if: ${{ steps.cfg.outputs.r2 != '' }}
+        env:
+          R2_NAME: ${{ steps.cfg.outputs.r2 }}
         run: |
-          R2NAME="${{ steps.cfg.outputs.r2 }}"
-          npx wrangler r2 bucket create "${R2NAME}" 2>&1 | grep -v "already exists" || true
-          echo "R2 存储桶: ${R2NAME}"
+          R2LIST=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets")
+
+          # jq 先判型再取字段(if type == "array"): 顶层数组与 result.buckets 包装两种格式都兼容,
+          # 且不会因对数组取 .result 触发 "Cannot index array with string" 类型错误
+          EXISTING_R2=$(echo "$R2LIST" | jq -r --arg n "$R2_NAME" '(if type == "array" then . else (.result.buckets // []) end)[]? | select(.name == $n) | .name // empty' \
+            || true)
+
+          if [ -n "$EXISTING_R2" ]; then
+            echo "R2 存储桶已存在: $R2_NAME"
+          else
+            echo "创建 R2 存储桶: $R2_NAME"
+            RESULT=$(npx wrangler r2 bucket create "$R2_NAME" 2>&1 || true)
+            echo "$RESULT"
+            # fail hard: 桶未建成却继续 = wrangler.toml 绑定指向不存在的桶,
+            # 最终 pages deploy 必报 "R2 bucket not found"(实际事故)
+            if echo "$RESULT" | grep -qi "already exists"; then
+              echo "R2 存储桶已存在(并发创建场景): $R2_NAME"
+            elif echo "$RESULT" | grep -qi "success"; then
+              echo "R2 存储桶创建成功: $R2_NAME"
+            else
+              echo "::error::R2 存储桶创建失败, 请检查 CLOUDFLARE_API_TOKEN 是否含 Workers R2 Storage:Edit 权限"
+              echo "::error::wrangler 返回: $RESULT"
+              exit 1
+            fi
+          fi
 
       - name: 生成 wrangler.toml（动态绑定 D1 / R2）
         run: |
