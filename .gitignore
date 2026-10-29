@@ -1,0 +1,18 @@
+# 环境变量与密钥（绝不提交）
+.env
+
+# 沙盒本地运行数据（D1 适配层 / R2 适配层 / 日志）
+local/data/
+local/r2data/
+dev-server.log
+
+# wrangler 实际配置（仓库只保留 wrangler.toml.example）
+wrangler.toml
+
+# 系统杂项
+.DS_Store
+Thumbs.db
+node_modules/
+__MACOSX/
+download/
+scripts/

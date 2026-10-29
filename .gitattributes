@@ -1,0 +1,8 @@
+# 防止 git 在不同平台破坏脚本文件的换行符与编码
+* -text
+*.bat binary
+*.ps1 binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.zip binary

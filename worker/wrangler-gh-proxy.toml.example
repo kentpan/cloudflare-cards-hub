@@ -1,0 +1,14 @@
+# ============================================================
+# gh-proxy Worker 的 wrangler 配置参考（配套 GitHub 下载代理）
+# 用法: cp worker/wrangler-gh-proxy.toml.example worker/wrangler.toml
+#       按需修改 name 后: cd worker && npx wrangler deploy
+# ============================================================
+name = "gh-proxy"                    # Worker 名称，会决定默认域名
+main = "gh-proxy-worker.js"          # 入口文件
+compatibility_date = "2025-01-01"
+
+# 可选：提升速率限制 / 支持私有仓库（用 secret 配置，不要明文写这里）
+# npx wrangler secret put GITHUB_TOKEN
+# 可选：仓库白名单（逗号分隔 user/repo，留空不限制）
+# [vars]
+# REPO_WHITELIST = "user/repo,user2/repo2"

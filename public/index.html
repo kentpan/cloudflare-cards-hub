@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>资源提取</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #3fb950;
+    --accent-dim: #238636;
+    --danger: #f85149;
+    --mono: ui-monospace, 'Cascadia Code', Consolas, 'Courier New', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bg); color: var(--text);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px 16px;
+    background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(63, 185, 80, .08), transparent);
+  }
+  main { width: 100%; max-width: 560px; }
+  .logo { text-align: center; margin-bottom: 28px; }
+  .logo .icon { font-size: 40px; }
+  .logo h1 { font-size: 22px; font-weight: 600; margin-top: 10px; letter-spacing: 1px; }
+  .logo p { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 24px;
+  }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+  .field { margin-bottom: 16px; }
+  input[type=text], input[type=password] {
+    width: 100%; height: 46px; padding: 0 14px;
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    font-size: 16px; font-family: var(--mono); letter-spacing: 1px;
+    outline: none; transition: border-color .15s;
+  }
+  input:focus { border-color: var(--accent); }
+  button.primary {
+    width: 100%; height: 46px; margin-top: 4px;
+    background: var(--accent-dim); color: #fff;
+    border: 1px solid rgba(240,246,252,.1); border-radius: 8px;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+    transition: background .15s;
+  }
+  button.primary:hover { background: var(--accent); }
+  button.primary:disabled { opacity: .55; cursor: not-allowed; }
+  .error {
+    display: none; margin-top: 14px; padding: 10px 14px;
+    background: rgba(248, 81, 73, .1); border: 1px solid rgba(248, 81, 73, .4);
+    border-radius: 8px; color: var(--danger); font-size: 14px;
+  }
+  .result { display: none; }
+  .result h2 { font-size: 16px; margin-bottom: 4px; color: var(--accent); }
+  .meta { color: var(--muted); font-size: 12.5px; margin-bottom: 16px; line-height: 1.8; }
+  .cmd-box { position: relative; margin-bottom: 14px; }
+  pre.cmd {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px; padding-right: 76px;
+    font-family: var(--mono); font-size: 13px; color: #7ee787;
+    white-space: pre-wrap; word-break: break-all; max-height: 180px; overflow-y: auto;
+  }
+  .copy-btn {
+    position: absolute; top: 10px; right: 10px;
+    padding: 5px 12px; font-size: 12px;
+    background: #21262d; color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+  }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn {
+    flex: 1; min-width: 130px; height: 42px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    background: #21262d; color: var(--text); text-decoration: none;
+    border: 1px solid var(--border); border-radius: 8px;
+    font-size: 14px; cursor: pointer; transition: all .15s;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .tips { margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--border); }
+  .tips summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .tips .body { margin-top: 10px; color: var(--muted); font-size: 13px; line-height: 1.9; }
+  .tips code { font-family: var(--mono); background: var(--bg); padding: 2px 6px; border-radius: 4px; color: #7ee787; font-size: 12px; }
+  footer { margin-top: 28px; color: #484f58; font-size: 12px; text-align: center; }
+  .loading { text-align: center; color: var(--muted); padding: 8px 0; }
+  @media (max-width: 480px) {
+    .card { padding: 18px; }
+    pre.cmd { padding-right: 14px; }
+    .copy-btn { position: static; margin-top: 8px; width: 100%; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="logo">
+    <div class="icon">&#128273;</div>
+    <h1 id="siteTitle">资源提取</h1>
+    <p>校验卡密获取你的资源</p>
+  </div>
+
+  <div class="card">
+    <!-- 提交区 -->
+    <section id="formArea">
+      <div class="field">
+        <label for="keyInput">卡密</label>
+        <input type="text" id="keyInput" placeholder="8 位英文数字" maxlength="16" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="field" id="pwdField" style="display:none">
+        <label for="pwdInput">提取码</label>
+        <input type="password" id="pwdInput" placeholder="卖家提供的提取码" maxlength="32" autocomplete="off">
+      </div>
+      <button class="primary" id="redeemBtn">立即提取</button>
+      <div class="error" id="errBox"></div>
+    </section>
+
+    <!-- 结果区 -->
+    <section class="result" id="resultArea">
+      <h2 id="scriptName">&#10003; 提取成功</h2>
+      <div class="meta" id="metaInfo"></div>
+      <div class="cmd-box">
+        <pre class="cmd" id="cmdText"></pre>
+        <button class="copy-btn" id="copyBtn">复制</button>
+      </div>
+      <div class="actions">
+        <a class="btn" id="downloadBtn" href="#" download>&#11015; 下载资源</a>
+        <button class="btn" id="againBtn">再提取一张</button>
+      </div>
+      <details class="tips">
+        <summary>怎么用？</summary>
+        <div class="body" id="usageBody"></div>
+      </details>
+    </section>
+  </div>
+
+  <footer id="footerText">资源云端分发 · Cloudflare Pages</footer>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var state = { shareRequired: false };
+
+  function showError(msg) {
+    var box = $('errBox');
+    box.textContent = msg;
+    box.style.display = 'block';
+  }
+  function hideError() { $('errBox').style.display = 'none'; }
+
+  // 初始化：读取公开配置
+  fetch('/api/public/config').then(function (r) { return r.json(); }).then(function (res) {
+    if (res && res.ok) {
+      if (res.data.site_title) {
+        $('siteTitle').textContent = res.data.site_title;
+        document.title = res.data.site_title;
+      }
+      state.shareRequired = !!res.data.share_required;
+      if (state.shareRequired) $('pwdField').style.display = 'block';
+    }
+  }).catch(function () {});
+
+  // URL 带 key 自动填充并聚焦提取码（或直接按钮待点）
+  var urlKey = new URLSearchParams(location.search).get('key');
+  if (urlKey) {
+    $('keyInput').value = urlKey.trim();
+  }
+  if (!urlKey) $('keyInput').focus();
+
+  // v1.0.3：/s/<token> 加密分享链接 → 自带卡密，免输入自动核销
+  var sToken = (location.pathname.match(/^\/s\/([A-Za-z0-9_-]+)/) || [])[1];
+  if (sToken) {
+    $('keyInput').value = sToken;
+    $('keyInput').placeholder = '加密分享链接已解析';
+    setTimeout(function () { doRedeem({ s: sToken }); }, 200);
+  }
+
+  function fmtTime(ts) {
+    if (!ts) return '永久有效';
+    var d = new Date(ts);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') +
+      ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + ' 过期';
+  }
+
+  function doRedeem(opts) {
+    opts = opts || {};
+    var key = $('keyInput').value.trim();
+    var pwd = $('pwdInput').value;
+    hideError();
+    if (!key && !opts.s) { showError('请输入卡密'); return; }
+    if (state.shareRequired && !pwd && !opts.s) { showError('请输入提取码'); return; }
+
+    var btn = $('redeemBtn');
+    btn.disabled = true;
+    btn.textContent = '验证中…';
+
+    var payload = opts.s ? { s: opts.s, pwd: pwd } : { key: key, pwd: pwd };
+    fetch('/api/redeem', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      btn.disabled = false;
+      btn.textContent = '立即提取';
+      if (!res.ok) { showError(res.error || '提取失败'); return; }
+      applyResult(res.data);
+    }).catch(function () {
+      btn.disabled = false;
+      btn.textContent = '立即提取';
+      showError('网络错误，请重试');
+    });
+  }
+
+  function applyResult(d) {
+    $('formArea').style.display = 'none';
+    $('resultArea').style.display = 'block';
+    $('scriptName').textContent = '✓ ' + (d.name || '资源') + ' · 提取成功';
+    $('metaInfo').innerHTML =
+      '使用次数：第 ' + d.used_count + ' / ' + d.max_uses + ' 次 · 剩余 ' + d.remaining + ' 次<br>' +
+      '有效期至：' + (d.expires_at ? fmtTime(d.expires_at) : '永久');
+    $('cmdText').textContent = d.command || '';
+    var dl = $('downloadBtn');
+    dl.href = d.download_url || '#';
+    dl.setAttribute('download', d.filename || 'file');
+    var type = (d.type || '').toLowerCase();
+    dl.textContent = type === 'ps1' ? '⬇ 下载 .ps1' : type === 'bat' || type === 'cmd' ? '⬇ 下载 .bat' : '⬇ 下载文件';
+    var usage;
+    if (type === 'ps1') {
+      usage = '1. 右键开始菜单 → 打开 <code>PowerShell</code><br>' +
+              '2. 粘贴上面的命令并回车，内容在内存中执行（不落盘）';
+    } else if (type === 'bat' || type === 'cmd') {
+      usage = '1. 点击「下载资源」保存 .bat 文件<br>' +
+              '2. 双击运行；或复制命令在 <code>cmd</code> 中执行';
+    } else {
+      usage = '1. 点击「下载文件」即可保存到本地；或复制命令用 <code>curl / wget</code> 下载<br>' +
+              '2. 分享链接已加密且自带授权，无需再输入任何卡密';
+    }
+    $('usageBody').innerHTML = usage;
+  }
+
+  $('redeemBtn').addEventListener('click', function () { doRedeem(); });
+  $('keyInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') doRedeem(); });
+  $('pwdInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') doRedeem(); });
+
+  $('copyBtn').addEventListener('click', function () {
+    var text = $('cmdText').textContent;
+    var self = this;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        self.textContent = '已复制 ✓';
+        setTimeout(function () { self.textContent = '复制'; }, 1500);
+      });
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      self.textContent = '已复制 ✓';
+      setTimeout(function () { self.textContent = '复制'; }, 1500);
+    }
+  });
+
+  $('againBtn').addEventListener('click', function () {
+    $('resultArea').style.display = 'none';
+    $('formArea').style.display = 'block';
+    $('pwdInput').value = '';
+    $('keyInput').value = '';
+    hideError();
+    $('keyInput').focus();
+  });
+})();
+</script>
+</body>
+</html>

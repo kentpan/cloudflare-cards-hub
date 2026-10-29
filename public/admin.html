@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>管理面板 · 卡密资源分发</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+
+<!-- ══════════ 登录层 ══════════ -->
+<div id="gate" class="gate">
+  <div class="gate-card">
+    <div class="gate-icon">&#128274;</div>
+    <h1>管理面板</h1>
+    <p class="gate-sub">输入 <code>ADMIN_SECRET</code>（Pages 环境变量）登录</p>
+    <div id="gateWarn" class="gate-warn" style="display:none"></div>
+    <input type="password" id="secretInput" placeholder="ADMIN_SECRET" autocomplete="current-password">
+    <button class="btn-primary full" id="loginBtn">登 录</button>
+    <p class="gate-hint">未配置？前往 Cloudflare Pages 控制台 → 项目 → Settings →<br>Environment variables → 添加 Secret：<code>ADMIN_SECRET</code></p>
+  </div>
+</div>
+
+<!-- ══════════ 主界面 ══════════ -->
+<div id="app" class="app" style="display:none">
+  <aside class="sidebar">
+    <div class="brand">&#128273; 卡密资源分发</div>
+    <nav>
+      <a class="nav-item active" data-view="dash">&#128200; 仪表盘</a>
+      <a class="nav-item" data-view="scripts">&#128230; 资源管理</a>
+      <a class="nav-item" data-view="cards">&#127873; 卡密管理</a>
+      <a class="nav-item" data-view="orders">&#129534; 订单记录</a>
+      <a class="nav-item" data-view="apikeys">&#128273; APIKEY 管理</a>
+      <a class="nav-item" data-view="settings">&#9881; 系统设置</a>
+    </nav>
+    <div class="sidebar-foot">
+      <span id="verText" class="ver"></span>
+      <button id="logoutBtn" class="btn-ghost">退出登录</button>
+    </div>
+  </aside>
+
+  <main class="content">
+
+    <!-- ═══ 仪表盘 ═══ -->
+    <section id="view-dash" class="view">
+      <header class="view-head"><h2>仪表盘</h2><button class="btn-ghost" id="refreshDash">&#8635; 刷新</button></header>
+      <div class="stat-grid">
+        <div class="stat-card"><div class="stat-num" id="stCardsTotal">-</div><div class="stat-label">累计发卡</div></div>
+        <div class="stat-card"><div class="stat-num" id="stCardsAvail">-</div><div class="stat-label">可用卡密</div></div>
+        <div class="stat-card"><div class="stat-num" id="stAmount">&yen;-</div><div class="stat-label">累计交易额</div></div>
+        <div class="stat-card"><div class="stat-num" id="stToday">&yen;0</div><div class="stat-label">今日交易额</div></div>
+      </div>
+      <div class="bind-strip" id="bindStrip"></div>
+      <div class="chart-grid">
+        <div class="chart-card">
+          <h3>发卡 / 核销趋势</h3>
+          <div class="chart-wrap"><canvas id="chartTrend"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h3>每日交易金额 (&yen;)</h3>
+          <div class="chart-wrap"><canvas id="chartAmount"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h3>资源核销占比</h3>
+          <div class="chart-wrap"><canvas id="chartShare"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <h3>APIKEY 发卡调用</h3>
+          <div class="chart-wrap"><canvas id="chartCalls"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 资源管理 ═══ -->
+    <section id="view-scripts" class="view" style="display:none">
+      <header class="view-head">
+        <h2>资源管理</h2>
+        <div class="head-actions">
+          <input class="search" id="scriptSearch" placeholder="搜索资源名称…" autocomplete="off">
+          <button class="btn-ghost" id="extLinkBtn">&#128279; 添加外链</button>
+          <button class="btn-primary" id="uploadBtn">&#11014; 上传资源</button>
+        </div>
+      </header>
+      <p class="view-desc">任意类型资源（源码 / 软件包 / zip / rar / 文档 / 图片等，单个 ≤100MB）存储在 R2（D1 仅记录 path）；买家经 <code>/s/加密链接</code> 下载（看不到真实路径）。也可添加<b>外链资源</b>（直存完整 URL，可配合配套的 gh-proxy Worker 加速 GitHub 文件）。</p>
+      <div class="table-card">
+        <table>
+          <thead><tr>
+            <th>名称</th><th>文件名</th><th>类型</th><th>大小</th><th>R2 Path</th><th>关联卡密</th><th>状态</th><th>上传时间</th><th>操作</th>
+          </tr></thead>
+          <tbody id="scriptTbody"></tbody>
+        </table>
+        <div class="pager" id="scriptPager"></div>
+      </div>
+    </section>
+
+    <!-- ═══ 卡密管理 ═══ -->
+    <section id="view-cards" class="view" style="display:none">
+      <header class="view-head">
+        <h2>卡密管理</h2>
+        <div class="head-actions">
+          <input class="search" id="cardSearch" placeholder="搜索卡密 / 订单标题…" autocomplete="off">
+          <select id="cardStatusFilter" class="select">
+            <option value="">全部状态</option>
+            <option value="active">可用</option>
+            <option value="exhausted">已用完</option>
+            <option value="revoked">已作废</option>
+          </select>
+          <button class="btn-primary" id="genCardBtn">&#10010; 生成卡密</button>
+        </div>
+      </header>
+      <div class="batch-bar" id="cardBatchBar" style="display:none">
+        已选 <b id="selCount">0</b> 张
+        <button class="btn-sm danger" data-act="revoke">作废</button>
+        <button class="btn-sm" data-act="restore">恢复</button>
+        <button class="btn-sm danger" data-act="delete">删除</button>
+      </div>
+      <div class="table-card">
+        <table>
+          <thead><tr>
+            <th><input type="checkbox" id="cardSelAll"></th>
+            <th>卡密</th><th>绑定资源</th><th>次数</th><th>状态</th><th>订单</th><th>备注</th><th>生成时间</th><th>操作</th>
+          </tr></thead>
+          <tbody id="cardTbody"></tbody>
+        </table>
+        <div class="pager" id="cardPager"></div>
+      </div>
+    </section>
+
+    <!-- ═══ 订单记录 ═══ -->
+    <section id="view-orders" class="view" style="display:none">
+      <header class="view-head">
+        <h2>订单记录</h2>
+        <div class="head-actions">
+          <input class="search" id="orderSearch" placeholder="搜索标题 / 卡密…" autocomplete="off">
+          <select id="orderSourceFilter" class="select">
+            <option value="">全部来源</option>
+            <option value="api">API 发卡</option>
+            <option value="manual">后台生成</option>
+          </select>
+        </div>
+      </header>
+      <div class="table-card">
+        <table>
+          <thead><tr>
+            <th>时间</th><th>商品标题</th><th>金额</th><th>卡密</th><th>状态</th><th>来源</th>
+          </tr></thead>
+          <tbody id="orderTbody"></tbody>
+        </table>
+        <div class="pager" id="orderPager"></div>
+      </div>
+    </section>
+
+    <!-- ═══ APIKEY 管理（v1.0.2） ═══ -->
+    <section id="view-apikeys" class="view" style="display:none">
+      <header class="view-head">
+        <h2>APIKEY 管理</h2>
+        <div class="head-actions">
+          <input class="search" id="apikeySearch" placeholder="搜索名称…" autocomplete="off">
+          <button class="btn-primary" id="newKeyBtn">&#10010; 新建 APIKEY</button>
+        </div>
+      </header>
+      <p class="view-desc">每把 APIKEY 可区分调用方来源（如咸鱼不同账号 / 机器人），支持独立<b>有效期</b>、<b>限速</b>（默认 <code>30 次 / 60s</code>）与<b>调用统计</b>。列表默认脱敏显示，点「查看」显示完整 key，点 key 本身即复制完整值。</p>
+      <div class="table-card">
+        <table>
+          <thead><tr>
+            <th>名称</th><th>APIKEY</th><th>状态</th><th>限速</th><th>有效期</th><th>发卡 / 金额</th><th>调用</th><th>最后使用</th><th>操作</th>
+          </tr></thead>
+          <tbody id="apikeyTbody"></tbody>
+        </table>
+        <div class="pager" id="apikeyPager"></div>
+      </div>
+    </section>
+
+    <!-- ═══ 系统设置 ═══ -->
+    <section id="view-settings" class="view" style="display:none">
+      <header class="view-head"><h2>系统设置</h2></header>
+
+      <div class="set-grid">
+        <div class="set-card">
+          <h3>&#128269; 站点与提取页</h3>
+          <label>站点标题（提取页显示）</label>
+          <input type="text" id="setTitle" placeholder="资源提取">
+          <label>站点域名（可绑定多个，用 ; 分隔，留空自动取请求域名）</label>
+          <input type="text" id="setSiteUrl" placeholder="https://cards.example.com">
+        </div>
+
+        <div class="set-card">
+          <h3>&#128231; 发卡交付方式</h3>
+          <p class="set-desc">POST /api/issue 返回给对接系统的内容：</p>
+          <div class="radio-group" id="setDelivery">
+            <label class="radio"><input type="radio" name="delivery" value="link"> 返回提取页链接（带卡密 URL，类网盘提取页）</label>
+            <label class="radio"><input type="radio" name="delivery" value="command"> 返回直接命令（买家复制即用）</label>
+            <label class="radio"><input type="radio" name="delivery" value="both"> 两者都返回</label>
+          </div>
+          <label>命令模板（变量：<code>{url}</code> 资源直链 · <code>{key}</code> 卡密 · <code>{page}</code> 提取页 · <code>{name}</code> · <code>{filename}</code>）</label>
+          <textarea id="setTemplate" rows="3" placeholder="留空按类型自动：ps1 → irm {url} | iex"></textarea>
+        </div>
+
+        <div class="set-card">
+          <h3>&#128190; R2 存储与直链</h3>
+          <label>R2 CDN 访问域名（资源直链前缀，强烈建议配置自定义域）</label>
+          <input type="text" id="setR2Cdn" placeholder="https://cdn.example.com 或 https://pub-xxxx.r2.dev">
+          <p class="set-desc" id="r2Status"></p>
+        </div>
+
+        <div class="set-card">
+          <h3>&#128640; GitHub 下载代理</h3>
+          <p class="set-desc">随包 PowerShell 载荷（payload.ps1 / bat）内的 <code>{{GH_PROXY}}</code> 占位符会在买家下载时自动替换为此地址。</p>
+          <p class="set-desc">默认填<b>专属代理</b>：部署配套 <code>worker/gh-proxy-worker.js</code> 后得到的 Worker 域名；也可改成 ghfast.top 等任意代理域名；<b>留空</b>则随包载荷自动走内置公共镜像。</p>
+          <label>代理地址（前缀式拼接，无需以 / 结尾）</label>
+          <input type="text" id="setGhProxy" placeholder="https://gh-proxy.你的子域.workers.dev">
+        </div>
+
+        <div class="set-card">
+          <h3>&#128272; 提取码</h3>
+          <p class="set-desc" id="shareStatus">-</p>
+          <label>设置 / 更换提取码（留空表示不修改；清空输入 <code>CLEAR</code>）</label>
+          <input type="text" id="setSharePwd" placeholder="不修改则留空" autocomplete="off">
+        </div>
+
+        <div class="set-card">
+          <h3>&#128273; 发卡 APIKEY（对接密钥）</h3>
+          <p class="set-desc">v1.0.2 已升级为<b>多 APIKEY 管理</b>：请前往左侧「APIKEY 管理」页创建、查看、复制与统计。</p>
+          <p class="set-desc">调用方式：<code>POST /api/issue</code>，请求头 <code>Authorization: Bearer &lt;APIKEY&gt;</code>，body <code>{"title":"商品名称","price":"5.88"}</code></p>
+          <p class="set-desc" id="legacyKeyNote">-</p>
+        </div>
+
+        <div class="set-card">
+          <h3>&#128273; 分享链接解密</h3>
+          <p class="set-desc">粘贴 <code>/s/</code> 加密分享或下载链接，解析出卡密、真实文件地址等信息（用当前 JWT_SECRET / ADMIN_SECRET 解密）。</p>
+          <label>加密分享链接或 token</label>
+          <input type="text" id="decodeInput" placeholder="https://你的域名/s/xxxxxx 或纯 token" autocomplete="off">
+          <div class="modal-actions" style="margin-top:10px">
+            <button class="btn-primary" id="decodeBtn">解密</button>
+            <button class="btn-ghost" id="decodeClearBtn">清空</button>
+          </div>
+          <div class="gen-result" id="decodeResult" style="display:none"></div>
+        </div>
+
+        <div class="set-card">
+          <h3>&#128274; ADMIN_SECRET（Pages Secret）</h3>
+          <p class="set-desc" id="adminSecretStatus"></p>
+          <p class="set-desc">修改方式：Cloudflare Pages 控制台 → Settings → Environment variables → 更新 <code>ADMIN_SECRET</code> → 重新部署。修改后所有登录会话失效，需重新登录。</p>
+        </div>
+      </div>
+
+      <div class="set-actions">
+        <button class="btn-primary" id="saveSettingsBtn">保存设置</button>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ══════════ 上传资源弹窗 ══════════ -->
+<div class="modal-mask" id="uploadModal" style="display:none">
+  <div class="modal">
+    <h3>上传资源</h3>
+    <div class="drop-zone" id="dropZone">
+      <p>&#128228; 拖拽任意类型文件到此处（源码 / 软件包 / zip / rar / 文档 / 图片…，≤100MB）</p>
+      <p class="dz-or">或</p>
+      <button class="btn-ghost" id="pickFileBtn">选择文件</button>
+      <input type="file" id="fileInput" style="display:none">
+      <p class="dz-file" id="dzFile"></p>
+    </div>
+    <label>资源名称（管理用，默认取上传文件名）</label>
+    <input type="text" id="uploadName" placeholder="例：某某软件 v2 安装包" autocomplete="off">
+    <div class="modal-actions">
+      <button class="btn-ghost" data-close>取消</button>
+      <button class="btn-primary" id="doUploadBtn">上传</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 生成卡密弹窗 ══════════ -->
+<div class="modal-mask" id="genModal" style="display:none">
+  <div class="modal">
+    <h3>生成卡密</h3>
+    <label>绑定资源</label>
+    <select id="genScript" class="select full"></select>
+    <label>生成数量（1-200）</label>
+    <input type="number" id="genCount" value="1" min="1" max="200">
+    <label>单张可核销次数</label>
+    <input type="number" id="genMaxUses" value="1" min="1" max="999">
+    <label>有效期（小时，0 = 永久）</label>
+    <input type="number" id="genExpires" value="0" min="0">
+    <label>订单标题（记录用，可空）</label>
+    <input type="text" id="genTitle" placeholder="后台生成" autocomplete="off">
+    <label>金额（记录用，0 不计入交易额）</label>
+    <input type="number" id="genPrice" value="0" min="0" step="0.01">
+    <label>备注</label>
+    <input type="text" id="genNote" placeholder="可空" autocomplete="off">
+    <div class="modal-actions">
+      <button class="btn-ghost" data-close>取消</button>
+      <button class="btn-primary" id="doGenBtn">生成</button>
+    </div>
+    <div class="gen-result" id="genResult" style="display:none">
+      <h4>&#10003; 已生成 <span id="genResultCount"></span> 张，点击卡密可复制</h4>
+      <div class="gen-keys" id="genKeys"></div>
+      <button class="btn-sm full" id="copyAllKeysBtn">复制全部</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 重命名弹窗 ══════════ -->
+<div class="modal-mask" id="renameModal" style="display:none">
+  <div class="modal">
+    <h3>重命名资源</h3>
+    <input type="text" id="renameInput" autocomplete="off">
+    <div class="modal-actions">
+      <button class="btn-ghost" data-close>取消</button>
+      <button class="btn-primary" id="doRenameBtn">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ 新建 APIKEY 弹窗 ══════════ -->
+<div class="modal-mask" id="apikeyModal" style="display:none">
+  <div class="modal">
+    <h3>新建 APIKEY</h3>
+    <label>名称（区分调用方，如：咸鱼主号）</label>
+    <input type="text" id="keyName" placeholder="咸鱼主号" maxlength="40" autocomplete="off">
+    <label>有效期（天，0 = 永久）</label>
+    <input type="number" id="keyExpires" value="0" min="0" max="3650">
+    <label>限速次数（窗口内最大调用次数）</label>
+    <input type="number" id="keyRateLimit" value="30" min="1">
+    <label>限速窗口（秒）</label>
+    <input type="number" id="keyRateWindow" value="60" min="1">
+    <div class="modal-actions">
+      <button class="btn-ghost" data-close>取消</button>
+      <button class="btn-primary" id="doCreateKeyBtn">创建</button>
+    </div>
+    <div class="gen-result" id="keyResult" style="display:none">
+      <h4>&#10003; 创建成功！完整 APIKEY 仅此一次展示，请立即复制保存</h4>
+      <div class="key-box" id="keyResultBox"></div>
+      <button class="btn-sm full" id="copyNewKeyBtn">复制 APIKEY</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ APIKEY 调用统计弹窗 ══════════ -->
+<div class="modal-mask" id="keyStatsModal" style="display:none">
+  <div class="modal modal-wide">
+    <h3>APIKEY 调用统计 · <span id="keyStatsName"></span></h3>
+    <div class="key-stats-meta" id="keyStatsMeta">-</div>
+    <div class="chart-wrap modal-chart"><canvas id="chartKeyCalls"></canvas></div>
+    <div class="modal-actions">
+      <select id="keyStatsDays" class="select">
+        <option value="7">近 7 天</option>
+        <option value="14">近 14 天</option>
+        <option value="30">近 30 天</option>
+      </select>
+      <button class="btn-ghost" data-close>关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/vendor/chart.umd.js"></script>
+<script src="/admin.js"></script>
+</body>
+</html>

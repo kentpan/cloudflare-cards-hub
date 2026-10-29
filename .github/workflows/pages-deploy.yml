@@ -1,0 +1,162 @@
+# ============================================================================
+# pages-deploy.yml — 卡密分发系统 v1.0.2 自动部署工作流（push main 即发布）
+# ----------------------------------------------------------------------------
+# 部署参数全部收敛于仓库根目录 deploy.config.js（项目名 / D1 名 / R2 桶名）。
+# wrangler.toml 由本工作流按配置动态生成（仓库无需携带），D1 与 R2 不存在时
+# 自动创建，并把 GitHub Secret 中的 ADMIN_SECRET 写入 Pages 运行环境。
+#
+# 需要在 GitHub 仓库 Settings → Secrets and variables → Actions 配置:
+#   Secrets(必填):
+#     CLOUDFLARE_API_TOKEN  部署权限（Pages:Edit + D1:Edit + R2:Edit）
+#     ADMIN_SECRET          管理面板登录密钥（自动注入 Pages 运行环境 Secret）
+#   Secrets(可选):
+#     ISSUE_APIKEY          旧版单密钥（建议改用管理面板「APIKEY 管理」）
+#     JWT_SECRET            /s/ 加密分享链接密钥（不配置则退回用 ADMIN_SECRET 派生）
+#     CLOUDFLARE_ACCOUNT_ID 账号 ID（单账号 Token 可留空自动探测）
+# ============================================================================
+
+name: Deploy to Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: pages-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WRANGLER_VERSION: '4'
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 读取部署配置 deploy.config.js
+        id: cfg
+        run: |
+          set -e
+          OUT=$(node --input-type=module -e "
+            import cfg from './deploy.config.js';
+            const pick = (v) => (v === undefined || v === null ? '' : String(v).trim());
+            if (!pick(cfg.projectName)) { console.error('deploy.config.js 缺少 projectName'); process.exit(1); }
+            console.log('project=' + pick(cfg.projectName));
+            console.log('d1=' + pick(cfg.d1Name));
+            console.log('r2=' + pick(cfg.r2Name));
+            console.log('account=' + pick(cfg.accountId));
+          ")
+          echo "$OUT" >> "$GITHUB_OUTPUT"
+          echo "$OUT"
+
+      - name: 安装 wrangler
+        run: npm install -g "wrangler@${WRANGLER_VERSION}"
+
+      - name: 确保 Pages 项目存在
+        run: |
+          PROJECT="${{ steps.cfg.outputs.project }}"
+          npx wrangler pages project create "${PROJECT}" --production-branch=main 2>&1 | grep -v "already exists" || true
+          echo "Pages 项目: ${PROJECT}"
+
+      - name: 确保 D1 数据库存在并取得 ID
+        id: d1
+        if: ${{ steps.cfg.outputs.d1 != '' }}
+        run: |
+          set -e
+          D1NAME="${{ steps.cfg.outputs.d1 }}"
+          DB_ID=$(npx wrangler d1 list 2>/dev/null | grep -F "$D1NAME" | grep -oE '[0-9a-f]{32}' | head -1 || true)
+          if [ -z "$DB_ID" ]; then
+            echo "创建 D1 数据库: ${D1NAME}"
+            OUT=$(npx wrangler d1 create "${D1NAME}" 2>&1 || true)
+            echo "$OUT"
+            DB_ID=$(echo "$OUT" | grep -oE '[0-9a-f]{32}' | head -1)
+          else
+            echo "D1 数据库已存在: ${D1NAME}"
+          fi
+          if [ -z "$DB_ID" ]; then
+            echo "::error::无法获取 D1 database_id，请检查 CLOUDFLARE_API_TOKEN 是否含 D1:Edit 权限"
+            exit 1
+          fi
+          echo "db_id=${DB_ID}" >> "$GITHUB_OUTPUT"
+          echo "D1 database_id: ${DB_ID}"
+
+      - name: 确保 R2 存储桶存在
+        if: ${{ steps.cfg.outputs.r2 != '' }}
+        run: |
+          R2NAME="${{ steps.cfg.outputs.r2 }}"
+          npx wrangler r2 bucket create "${R2NAME}" 2>&1 | grep -v "already exists" || true
+          echo "R2 存储桶: ${R2NAME}"
+
+      - name: 生成 wrangler.toml（动态绑定 D1 / R2）
+        run: |
+          set -e
+          PROJECT="${{ steps.cfg.outputs.project }}"
+          {
+            echo "name = \"${PROJECT}\""
+            echo 'compatibility_date = "2025-01-01"'
+            echo 'pages_build_output_dir = "public"'
+          } > wrangler.toml
+          if [ -n "${{ steps.cfg.outputs.d1 }}" ] && [ -n "${{ steps.d1.outputs.db_id }}" ]; then
+            {
+              echo ''
+              echo '[[d1_databases]]'
+              echo 'binding = "DATABASE"'
+              echo "database_name = \"${{ steps.cfg.outputs.d1 }}\""
+              echo "database_id = \"${{ steps.d1.outputs.db_id }}\""
+            } >> wrangler.toml
+          fi
+          if [ -n "${{ steps.cfg.outputs.r2 }}" ]; then
+            {
+              echo ''
+              echo '[[r2_buckets]]'
+              echo 'binding = "BUCKET"'
+              echo "bucket_name = \"${{ steps.cfg.outputs.r2 }}\""
+            } >> wrangler.toml
+          fi
+          echo '----- 生成的 wrangler.toml -----'
+          cat wrangler.toml
+
+      - name: 写入 ADMIN_SECRET 等运行环境 Secret
+        env:
+          ADMIN_SECRET: ${{ secrets.ADMIN_SECRET }}
+          ISSUE_APIKEY: ${{ secrets.ISSUE_APIKEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          set -e
+          PROJECT="${{ steps.cfg.outputs.project }}"
+          if [ -z "$ADMIN_SECRET" ]; then
+            echo "::error::缺少 GitHub Secret ADMIN_SECRET（Settings → Secrets and variables → Actions 配置后重试）"
+            exit 1
+          fi
+          printf '%s' "$ADMIN_SECRET" | npx wrangler pages secret put ADMIN_SECRET --project-name "$PROJECT"
+          echo 'ADMIN_SECRET 已写入 Pages 运行环境'
+          if [ -n "$JWT_SECRET" ]; then
+            printf '%s' "$JWT_SECRET" | npx wrangler pages secret put JWT_SECRET --project-name "$PROJECT" || true
+            echo 'JWT_SECRET 已写入 Pages 运行环境（/s/ 加密分享）'
+          fi
+          if [ -n "$ISSUE_APIKEY" ]; then
+            printf '%s' "$ISSUE_APIKEY" | npx wrangler pages secret put ISSUE_APIKEY --project-name "$PROJECT" || true
+            echo 'ISSUE_APIKEY 已写入 Pages 运行环境'
+          fi
+
+      - name: 部署到 Cloudflare Pages
+        run: |
+          export CLOUDFLARE_ACCOUNT_ID="${{ steps.cfg.outputs.account }}"
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            export CLOUDFLARE_ACCOUNT_ID="${{ secrets.CLOUDFLARE_ACCOUNT_ID }}"
+          fi
+          npx wrangler pages deploy public --project-name "${{ steps.cfg.outputs.project }}" --branch main --commit-dirty=true
+          echo "部署完成 → https://${{ steps.cfg.outputs.project }}.pages.dev"
