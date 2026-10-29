@@ -132,12 +132,16 @@ jobs:
             echo "创建 Pages 项目: $PROJECT"
             RESULT=$(npx wrangler pages project create "$PROJECT" --production-branch=main 2>&1 || true)
             echo "$RESULT"
-            if ! echo "$RESULT" | grep -qi "successfully created"; then
-              echo "::error::Pages 项目创建失败, 请检查 CLOUDFLARE_API_TOKEN 是否含 Cloudflare Pages:Edit 权限"
+            # 不猜 wrangler 输出格式(各版本成功文案不同) —— 创建后 REST 复查, HTTP 200 即真实存在
+            VCODE=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/${PROJECT}")
+            if [ "$VCODE" = "200" ]; then
+              echo "Pages 项目创建成功(REST 复查通过): $PROJECT"
+            else
+              echo "::error::Pages 项目创建失败(REST 复查 HTTP $VCODE), 请检查 CLOUDFLARE_API_TOKEN 是否含 Cloudflare Pages:Edit 权限"
               echo "::error::wrangler 返回: $RESULT"
               exit 1
             fi
-            echo "Pages 项目创建成功: $PROJECT"
           else
             echo "::error::无法查询 Pages 项目(HTTP $CODE), 请检查 CLOUDFLARE_API_TOKEN 是否含 Cloudflare Pages:Edit 权限"
             echo "::error::API 返回: $BODY"
@@ -167,17 +171,18 @@ jobs:
             echo "创建 D1 数据库: $D1_NAME"
             RESULT=$(npx wrangler d1 create "$D1_NAME" 2>&1 || true)
             echo "$RESULT"
-            # 从 create 输出提取完整 UUID(带连字符)。输出格式随 wrangler 版本不同:
-            #   JSON(wrangler 4.155 实测): "database_id": "xxxx-…"
-            #   TOML(老版 wrangler):        database_id = "xxxx-…"
-            # 故用 "?\s*[=:]  同时兼容两种格式; 再用带连字符 UUID 正则兜底
-            # (严禁 [0-9a-f]{32}: 带连字符 UUID 最长连续 hex 段仅 12 位, 永远匹配不上)
-            DB_ID=$(echo "$RESULT" | grep -oP 'database_id"?\s*[=:]\s*"\K[^"]+' | head -1 || echo "")
+            # 不猜 wrangler 输出格式(各版本成功文案/字段不同) —— 创建后重查云端列表拿真实 ID;
+            # 列表查询复用与查重分支相同的 if type == "array" 防御式 jq, 顶层数组/{result:[]} 都兼容
+            DB_ID=$(npx wrangler d1 list --json 2>/dev/null \
+              | jq -r --arg n "$D1_NAME" '(if type == "array" then . else (.result // []) end)[] | select(.name == $n) | (.uuid // .id // empty)' \
+              || true)
             if [ -z "$DB_ID" ]; then
-              DB_ID=$(echo "$RESULT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || echo "")
+              # 兜底: 云端列表未命中时再从 create 输出提取(带连字符 UUID)
+              DB_ID=$(echo "$RESULT" | grep -oP 'database_id"?\s*[=:]\s*"\K[^"]+' | head -1 || echo "")
             fi
             if [ -z "$DB_ID" ]; then
               echo "::error::无法获取 D1 database_id，请检查 CLOUDFLARE_API_TOKEN 是否含 D1:Edit 权限"
+              echo "::error::wrangler 返回: $RESULT"
               exit 1
             fi
             echo "创建 D1 数据库成功: $D1_NAME (ID: $DB_ID)"
@@ -217,13 +222,15 @@ jobs:
             echo "创建 R2 存储桶: $R2_NAME"
             RESULT=$(npx wrangler r2 bucket create "$R2_NAME" 2>&1 || true)
             echo "$RESULT"
-            # fail hard: 桶未建成却继续 = wrangler.toml 绑定指向不存在的桶,
-            # 最终 pages deploy 必报 "R2 bucket not found"(实际事故)
-            if echo "$RESULT" | grep -qi "already exists"; then
-              echo "R2 存储桶已存在(并发创建场景): $R2_NAME"
-            elif echo "$RESULT" | grep -qi "success"; then
-              echo "R2 存储桶创建成功: $R2_NAME"
-            elif echo "$RESULT" | grep -qE '"code"\s*:\s*10042|[Pp]lease enable R2'; then
+            # 不猜 wrangler 输出格式(v4.155 成功文案是 "✅ Created bucket …", 不含 success 字样,
+            # 字符串判定必然漏报 —— 实际事故) —— 创建后 REST 复查, 桶真实存在即成功:
+            R2VERIFY=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets")
+            R2_OK=$(echo "$R2VERIFY" | jq -r --arg n "$R2_NAME" '(if type == "array" then . else (.result.buckets // []) end)[]? | select(.name == $n) | .name // empty' \
+              || true)
+            if [ -n "$R2_OK" ]; then
+              echo "R2 存储桶创建成功(REST 复查通过): $R2_NAME"
+            elif echo "$RESULT$R2VERIFY" | grep -qE '"code"\s*:\s*10042|[Pp]lease enable R2'; then
               echo "::error::R2 服务未在此 Cloudflare 账号上开通([code: 10042]), 与 Token 权限无关。"
               echo "::error::解决: Cloudflare Dashboard → 左侧 R2 对象存储 → 按提示开通 R2(免费额度 10GB 存储/月, 开通需绑定支付方式), 开通后重跑本工作流。"
               exit 1
