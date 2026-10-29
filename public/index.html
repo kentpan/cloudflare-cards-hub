@@ -140,7 +140,7 @@
     </section>
   </div>
 
-  <footer id="footerText">资源云端分发 · Cloudflare Pages</footer>
+  <footer id="footerText">资源云端分发</footer>
 </main>
 
 <script>
@@ -175,7 +175,7 @@
   }
   if (!urlKey) $('keyInput').focus();
 
-  // v1.0.3：/s/<token> 加密分享链接 → 自带卡密，免输入自动核销
+  // v1.0.4：/s/<token> 加密分享链接 → 自带卡密，免输入自动核销
   var sToken = (location.pathname.match(/^\/s\/([A-Za-z0-9_-]+)/) || [])[1];
   if (sToken) {
     $('keyInput').value = sToken;

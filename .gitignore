@@ -1,7 +1,10 @@
 # 环境变量与密钥（绝不提交）
 .env
 
-# 沙盒本地运行数据（D1 适配层 / R2 适配层 / 日志）
+# 沙盒本地运行数据（SQLite 数据库 / R2 适配层 / 日志）
+prisma/*.db
+prisma/*.db-shm
+prisma/*.db-wal
 local/data/
 local/r2data/
 dev-server.log

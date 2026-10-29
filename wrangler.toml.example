@@ -1,5 +1,5 @@
 # ============================================================
-# 卡密资源分发系统 v1.0.3 —— wrangler 本地调试配置参考
+# 卡密资源分发系统 v1.0.4 —— wrangler 本地调试配置参考
 # 用法: cp wrangler.toml.example wrangler.toml 并填入真实 ID
 # 注意: Pages 线上部署的绑定在控制台配置（Settings → Bindings），
 #       此文件仅用于 wrangler pages dev 本地调试；

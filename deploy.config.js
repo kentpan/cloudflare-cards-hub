@@ -1,5 +1,5 @@
 // ============================================================================
-// 卡密资源分发系统 v1.0.3 —— 部署配置（.github/workflows/pages-deploy.yml 由此读取）
+// 卡密资源分发系统 v1.0.4 —— 部署配置（.github/workflows/pages-deploy.yml 由此读取）
 // ============================================================================
 // 使用 GitHub 自动部署前，在仓库 Settings → Secrets and variables → Actions
 // 配置以下 Secrets（均只需配置一次，之后 push main 即自动发布到 Cloudflare Pages）:

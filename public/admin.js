@@ -122,9 +122,9 @@
       if (!res.ok) { showGate('系统初始化失败：' + esc(res.error || '')); return; }
       var d = res.data;
       $('verText').textContent = 'v' + d.version;
-      if (!d.db) { showGate('D1 数据库未绑定：请到 Pages 控制台 → Settings → Bindings 添加 <b>D1</b>，变量名 <code>DATABASE</code>'); return; }
+      if (!d.db) { showGate('系统存储未就绪，请联系管理员检查部署配置。'); return; }
       if (!d.admin_secret_configured) {
-        showGate('尚未配置 <b>ADMIN_SECRET</b>：请到 Cloudflare Pages 控制台 → Settings → Environment variables（Production + Preview）添加类型为 <b>Secret</b> 的变量 <code>ADMIN_SECRET</code>，保存后重新部署即可登录。');
+        showGate('尚未配置管理密钥：请联系管理员在部署平台完成配置后再登录。');
         return;
       }
       if (state.token) {
@@ -142,7 +142,7 @@
 
   function doLogin() {
     var secret = $('secretInput').value;
-    if (!secret) { toast('请输入 ADMIN_SECRET', true); return; }
+    if (!secret) { toast('请输入管理密钥', true); return; }
     $('loginBtn').disabled = true;
     $('loginBtn').textContent = '验证中…';
     api('/api/admin/login', { method: 'POST', body: JSON.stringify({ admin_secret: secret }) })
@@ -202,8 +202,8 @@
       $('bindStrip').innerHTML =
         '<span class="' + (b.db ? 'bind-ok' : 'bind-miss') + '">● D1 ' + (b.db ? '已绑定' : '未绑定') + '</span>' +
         '<span class="' + (b.r2 ? 'bind-ok' : 'bind-miss') + '">● R2 ' + (b.r2 ? '已绑定' : '未绑定（资源上传不可用）') + '</span>' +
-        '<span class="' + (b.admin_secret ? 'bind-ok' : 'bind-miss') + '">● ADMIN_SECRET ' + (b.admin_secret ? '已配置' : '未配置') + '</span>' +
-        '<span class="' + ((d.apikeys && d.apikeys.active > 0) ? 'bind-ok' : 'bind-miss') + '">● APIKEY ' + (d.apikeys ? d.apikeys.active + '/' + d.apikeys.total + ' 可用' : '0/0 可用') + (b.issue_apikey_env ? ' · 旧版 ISSUE_APIKEY 兼容中' : '') + '</span>';
+        '<span class="' + (b.admin_secret ? 'bind-ok' : 'bind-miss') + '">● 管理密钥 ' + (b.admin_secret ? '已配置' : '未配置') + '</span>' +
+        '<span class="' + ((d.apikeys && d.apikeys.active > 0) ? 'bind-ok' : 'bind-miss') + '">● APIKEY ' + (d.apikeys ? d.apikeys.active + '/' + d.apikeys.total + ' 可用' : '0/0 可用') + (b.issue_apikey_env ? ' · 旧版单密钥兼容中' : '') + '</span>';
     }).catch(function (e) { toast(e.message, true); });
 
     api('/api/admin/stats?days=30').then(function (d) { renderCharts(d); }).catch(function () {});
@@ -271,7 +271,7 @@
     });
   }
 
-  /* ─────────── 分享链接解密（v1.0.3） ─────────── */
+  /* ─────────── 分享链接解密（v1.0.4） ─────────── */
   $('decodeBtn').onclick = function () {
     var input = $('decodeInput').value.trim();
     if (!input) { toast('请输入 /s/ 加密链接或 token', true); return; }
@@ -373,7 +373,7 @@
   });
   function setUploadFile(f) {
     if (!f) return;
-    // v1.0.3：任意类型资源，单个 ≤100MB
+    // v1.0.4：任意类型资源，单个 ≤100MB
     if (f.size > 100 * 1024 * 1024) { toast('文件超过 100MB 上限', true); return; }
     state.uploadFile = f;
     $('dzFile').textContent = '✓ ' + f.name + '（' + fmtSize(f.size) + '）';
@@ -651,10 +651,10 @@
         : '未设置提取码：买家打开 /s/ 加密链接即自动核销，零输入';
       $('setSharePwd').value = '';
       $('legacyKeyNote').textContent = d.apikey_source === 'env'
-        ? '检测到环境变量 ISSUE_APIKEY（旧版单密钥模式，仍兼容可用）；建议迁移到「APIKEY 管理」。'
+        ? '检测到旧版单密钥模式（仍兼容可用）；建议迁移到「APIKEY 管理」。'
         : '旧版后台单密钥仅作兑底兼容，建议使用「APIKEY 管理」创建多把可区分调用方的 key。';
       $('adminSecretStatus').innerHTML = d.admin_secret_env
-        ? '<span class="bind-ok">● 已在 Pages 环境变量中配置</span>'
+        ? '<span class="bind-ok">● 已在部署平台配置</span>'
         : '<span class="bind-miss">● 未配置</span>';
       $('r2Status').textContent = d.r2_cdn_base
         ? '资源直链前缀：' + d.r2_cdn_base + '/<path>'

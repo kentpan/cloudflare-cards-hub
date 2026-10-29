@@ -14,11 +14,9 @@
   <div class="gate-card">
     <div class="gate-icon">&#128274;</div>
     <h1>管理面板</h1>
-    <p class="gate-sub">输入 <code>ADMIN_SECRET</code>（Pages 环境变量）登录</p>
     <div id="gateWarn" class="gate-warn" style="display:none"></div>
-    <input type="password" id="secretInput" placeholder="ADMIN_SECRET" autocomplete="current-password">
+    <input type="password" id="secretInput" placeholder="输入管理密钥" autocomplete="current-password">
     <button class="btn-primary full" id="loginBtn">登 录</button>
-    <p class="gate-hint">未配置？前往 Cloudflare Pages 控制台 → 项目 → Settings →<br>Environment variables → 添加 Secret：<code>ADMIN_SECRET</code></p>
   </div>
 </div>
 
@@ -239,9 +237,9 @@
         </div>
 
         <div class="set-card">
-          <h3>&#128274; ADMIN_SECRET（Pages Secret）</h3>
+          <h3>&#128274; 管理密钥</h3>
           <p class="set-desc" id="adminSecretStatus"></p>
-          <p class="set-desc">修改方式：Cloudflare Pages 控制台 → Settings → Environment variables → 更新 <code>ADMIN_SECRET</code> → 重新部署。修改后所有登录会话失效，需重新登录。</p>
+          <p class="set-desc">修改方式：在部署平台的环境变量设置中更新管理密钥后重新部署。修改后所有登录会话失效，需重新登录。</p>
         </div>
       </div>
 

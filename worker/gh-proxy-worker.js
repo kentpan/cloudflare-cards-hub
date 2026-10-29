@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- *  GitHub 文件下载加速代理（卡密资源分发系统 v1.0.3 配套 Worker）
+ *  GitHub 文件下载加速代理（卡密资源分发系统 v1.0.4 配套 Worker）
  * ============================================================================
  *  用途：国内 / 弱网环境下加速下载 GitHub 文件（raw / Release / 源码包）。
  *  配合卡密分发系统：管理面板「系统设置 → GitHub 下载代理」填入本 Worker 地址，
@@ -65,7 +65,7 @@ function helpText(base) {
   return jsonResp({
     name: 'GitHub File Download Proxy',
     version: '1.0.0',
-    companion: '卡密资源分发系统 v1.0.3 · 管理面板「资源管理 → 添加外链」直接填本代理地址',
+    companion: '卡密资源分发系统 v1.0.4 · 管理面板「资源管理 → 添加外链」直接填本代理地址',
     usage: {
       full_url: `${base}/https://raw.githubusercontent.com/user/repo/main/file.ps1`,
       raw_short: `${base}/gh/user/repo@main/path/file.ps1`,

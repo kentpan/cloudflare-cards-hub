@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- *  卡密资源分发系统 v1.0.3 —— Cloudflare Pages Functions（路由模式）
+ *  卡密资源分发系统 v1.0.4 —— Cloudflare Pages Functions（路由模式）
  * ============================================================================
  *  · 只有 /api/* 与 /s/* 请求进入 Functions（免费 10 万次/天），
  *    public/ 下静态页面由 Pages CDN 直接服务，完全免费、不限量。
@@ -58,7 +58,7 @@
 // ---------------------------------------------------------------------------
 // 常量
 // ---------------------------------------------------------------------------
-const VERSION = '1.0.3';
+const VERSION = '1.0.4';
 
 // 卡密：8 位大小写英文 + 数字混合（区分大小写）
 const CARD_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -299,7 +299,7 @@ async function ensureSchema(env) {
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// 加密分享链接（v1.0.3）：JWT_SECRET（未配置则退回 ADMIN_SECRET）派生 AES-256-GCM 密钥
+// 加密分享链接（v1.0.4）：JWT_SECRET（未配置则退回 ADMIN_SECRET）派生 AES-256-GCM 密钥
 // token = base64url(iv + ciphertext(JSON payload))，统一挂在 /s/<token> 路径下；
 // payload: { t:'p', k:卡密 } 提取页 | { t:'f', p:路径或外链, n:文件名, k:卡密 } 下载
 // ---------------------------------------------------------------------------
@@ -521,7 +521,7 @@ function downloadBase(request, env, s) {
   return cdn || `${new URL(request.url).origin}/api/file`;
 }
 
-// 依据资源与模板生成命令与下载地址（v1.0.3：分享/下载统一走 /s/<加密token>）
+// 依据资源与模板生成命令与下载地址（v1.0.4：分享/下载统一走 /s/<加密token>）
 // 模板变量: {url}=加密下载直链 {key}=卡密 {page}=提取页链接 {name}=资源名 {filename}=文件名
 async function renderDelivery(request, env, s, script, cardKey, pageUrl) {
   const base = downloadBase(request, env, s);
@@ -628,7 +628,7 @@ async function handleIssue(request, env) {
       .bind(scriptId)
       .first();
   }
-  // v1.0.3：不再提供“默认脚本”兜底，未指定 / 无效 script_id 直接 404
+  // v1.0.4：不再提供“默认脚本”兜底，未指定 / 无效 script_id 直接 404
   if (!script) {
     return fail('未找到可用资源：请携带有效的 script_id（卖家后台 → 资源管理查看）', 404);
   }
@@ -669,7 +669,7 @@ async function handleIssue(request, env) {
   );
 
   const deliveryMode = body.deliver || s.delivery_mode || 'link';
-  // 提取页链接（v1.0.3：/s/<token> 自带卡密，买家免输入提取码）
+  // 提取页链接（v1.0.4：/s/<token> 自带卡密，买家免输入提取码）
   const siteBaseStr = siteBase(request, env, s);
   const pageTok = await shareSeal(env, { t: 'p', k: cardKey });
   const pageUrl = pageTok
@@ -702,7 +702,7 @@ async function handleRedeem(request, env) {
   if (rateLimited('redeem', ip)) return fail('尝试过于频繁，请稍后再试', 429);
 
   const body = await request.json().catch(() => ({}));
-  // v1.0.3：支持 /s/<token> 加密链接直达（token 自带卡密，免输入提取码）
+  // v1.0.4：支持 /s/<token> 加密链接直达（token 自带卡密，免输入提取码）
   let cardKey = normalizeCardKey(body.key);
   let viaToken = false;
   if (!cardKey && body.s) {
@@ -769,7 +769,7 @@ async function handleRedeem(request, env) {
 }
 
 // ---------------------------------------------------------------------------
-// 资源下发（v1.0.3）：/api/file/<path> 直链兜底 与 /s/<token> 加密分享共用
+// 资源下发（v1.0.4）：/api/file/<path> 直链兜底 与 /s/<token> 加密分享共用
 // ---------------------------------------------------------------------------
 const MIME = {
   ps1: 'text/plain; charset=utf-8',
@@ -871,7 +871,7 @@ async function serveIndexHtml(request, env) {
   }
 }
 
-// GET /s/<token> —— 加密分享路由（v1.0.3）
+// GET /s/<token> —— 加密分享路由（v1.0.4）
 //   t='p' → 自带卡密的提取页（前端 JS 用 token 自动核销，买家零输入）
 //   t='f' → 自带卡密的下载直链：校验卡密状态后下发 R2 对象或 302 到外链
 async function handleShare(request, env, pathParts) {
@@ -1135,7 +1135,7 @@ async function handleScriptUpload(request, env) {
   if (!form) return fail('必须是 multipart/form-data');
   const file = form.get('file');
   if (!(file && typeof file === 'object' && 'arrayBuffer' in file)) return fail('缺少文件字段 file');
-  // v1.0.3：任意类型资源，≤100MB；未输入名称时直接用上传文件的文件名
+  // v1.0.4：任意类型资源，≤100MB；未输入名称时直接用上传文件的文件名
   if (file.size > MAX_FILE_BYTES) return fail(`文件过大（上限 ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)} MB）`);
   const name = String(form.get('name') || '').trim() || file.name;
 
@@ -1422,7 +1422,7 @@ async function handleSettingsPost(request, env) {
 
   if (body.site_title !== undefined) updates.push(['site_title', String(body.site_title).slice(0, 60)]);
   if (body.site_url !== undefined) {
-    // v1.0.3：站点域名支持绑定多个，; 分隔
+    // v1.0.4：站点域名支持绑定多个，; 分隔
     const list = String(body.site_url)
       .split(';')
       .map((x) => x.trim().replace(/\/+$/, ''))
